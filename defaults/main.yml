@@ -1,0 +1,13 @@
+---
+software:
+  languages: []
+
+software_langmap:
+    german:
+      short: de
+      medium: deu
+      long: german
+    french:
+      short: fr
+      medium: fra
+      long: french

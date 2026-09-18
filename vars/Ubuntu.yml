@@ -1,0 +1,9 @@
+---
+# task-german task-german-desktop language-pack-de
+software_languagepkgs_map:
+  short:
+    - language-pack-%s
+  medium: []
+  long:
+    - task-%s
+    - task-%s-desktop

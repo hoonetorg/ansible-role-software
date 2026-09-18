@@ -1,0 +1,10 @@
+---
+# langpacks-de glibc-langpack-de langpacks-fonts-de tesseract-langpack-deu
+software_languagepkgs_map:
+  short:
+    - langpacks-%s
+    - glibc-langpack-%s
+    - langpacks-fonts-%s
+  medium:
+    - tesseract-langpack-%s
+  long: []

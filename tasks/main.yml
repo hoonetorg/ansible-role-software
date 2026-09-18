@@ -1,0 +1,46 @@
+---
+- name: Load family vars
+  ansible.builtin.include_vars:
+    file: "{{ ansible_os_family }}.yml"
+
+- name: Load distro vars if present
+  ansible.builtin.include_vars:
+    file: "{{ ansible_distribution }}.yml"
+  ignore_errors: true
+
+- name: Validate configured languages
+  ansible.builtin.assert:
+    that:
+      - item in software_langmap
+    fail_msg: "Unsupported software language: {{ item }}"
+  loop: "{{ software.languages | default([]) }}"
+
+- name: Initialize language package list
+  ansible.builtin.set_fact:
+    software_languagepkgs_final: []
+
+- name: Build language package list
+  ansible.builtin.set_fact:
+    software_languagepkgs_final: >-
+      {{
+        software_languagepkgs_final
+        + (software_languagepkgs_map.short  | default([]) | map('format', langdef.short)  | list)
+        + (software_languagepkgs_map.medium | default([]) | map('format', langdef.medium) | list)
+        + (software_languagepkgs_map.long   | default([]) | map('format', langdef.long)   | list)
+      }}
+  vars:
+    langdef: "{{ software_langmap[item] }}"
+  loop: "{{ software.languages | default([]) }}"
+
+- name: Install language packages
+  ansible.builtin.package:
+    name: "{{ software_languagepkgs_final | unique }}"
+    state: present
+  when: software_languagepkgs_final | length > 0
+
+- name: Package-install
+  ansible.builtin.package:
+    name:
+      - mc
+      - chromium
+    state: latest
