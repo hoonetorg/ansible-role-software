@@ -1,0 +1,53 @@
+---
+# policies of one browser (software_b.key = name, software_b.value = entry of software_browsers)
+- name: "Browser {{ software_b.key }}: final policies"
+  ansible.builtin.set_fact:
+    software_b_installed: "{{ software_packages | select('match', software_b.value.match) | list | length > 0 }}"
+    software_b_policies: >-
+      {{ (software_final.firefox_policies
+          | combine({'ExtensionSettings': software_b_ff_pinned} if software_final.pin_extensions else {}, recursive=True))
+         if software_b.value.firefox | default(false)
+         else (software_final.chromium_common_policies
+               | combine({'ExtensionSettings': software_b_ext} if software_b_ext | length > 0 else {}, recursive=True)
+               | combine(software_final[software_b.key ~ '_policies'] | default({}), recursive=True)) }}
+  vars:
+    software_b_store: "{{ software_extension_stores[software_b.value.store | default('chrome')] }}"
+    # extensions of the browser's store: normal_installed with the store's update URL (+ pinned)
+    software_b_ids: "{{ software_final[software_b.value.store | default('none') ~ '_store_extensions'] | default([]) }}"
+    software_b_setting: >-
+      {{ {'installation_mode': 'normal_installed', 'update_url': software_b_store.update_url}
+         | combine(software_b_store.pin if software_final.pin_extensions else {}) }}
+    software_b_ext: "{{ dict(software_b_ids | zip([software_b_setting] * (software_b_ids | length))) }}"
+    # Firefox: every ExtensionSettings entry (not "*") gets software_firefox_pin, its own value wins
+    software_b_ff_ext: >-
+      {{ software_final.firefox_policies.ExtensionSettings | default({}) | dict2items
+         | rejectattr('key', 'eq', '*') | items2dict }}
+    software_b_ff_pinned: >-
+      {{ dict(software_b_ff_ext.keys()
+              | zip(([software_firefox_pin] * (software_b_ff_ext | length)) | zip(software_b_ff_ext.values())
+                    | map('ansible.builtin.combine'))) }}
+
+- name: "Browser {{ software_b.key }}: policy directory"
+  ansible.builtin.file:
+    path: "{{ software_b.value.file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: software_b_installed and software_b_policies | length > 0
+
+- name: "Browser {{ software_b.key }}: policies"
+  ansible.builtin.copy:
+    content: "{{ ({'policies': software_b_policies} if software_b.value.firefox | default(false) else software_b_policies) | to_nice_json }}\n"
+    dest: "{{ software_b.value.file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: software_b_installed and software_b_policies | length > 0
+
+# not in the package list or no policies: remove the file written earlier by this role
+- name: "Browser {{ software_b.key }}: remove policies"
+  ansible.builtin.file:
+    path: "{{ software_b.value.file }}"
+    state: absent
+  when: not (software_b_installed and software_b_policies | length > 0)

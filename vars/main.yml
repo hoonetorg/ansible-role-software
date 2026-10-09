@@ -1,0 +1,38 @@
+---
+# browsers with policies: a browser counts as installed when a package of software.packages(+_by_os) matches
+# `match`; its policies go to `file` (written by this role only, other files in the directory are not touched).
+# Chromium based browsers (`store`) get chromium_common_policies + the extensions of their store; Firefox gets
+# {"policies": firefox_policies}
+software_browsers:
+  firefox:
+    match: '^(MozillaFirefox|firefox|firefox-esr)$'
+    file: /etc/firefox/policies/policies.json
+    firefox: true
+  chromium:
+    match: '^(chromium|chromium-browser)$'
+    file: /etc/chromium/policies/managed/ansible.json
+    store: chrome
+  chrome:
+    match: '^google-chrome-'
+    file: /etc/opt/chrome/policies/managed/ansible.json
+    store: chrome
+  brave:
+    match: '^brave-browser'
+    file: /etc/brave/policies/managed/ansible.json
+    store: chrome
+  edge:
+    match: '^microsoft-edge-'
+    file: /etc/opt/edge/policies/managed/ansible.json
+    store: edge
+
+# extension stores: update URL (ExtensionSettings: normal_installed) and the setting that pins an extension to the
+# toolbar (software.pin_extensions; Chromium: toolbar_pin, Edge >= 103: toolbar_state)
+software_extension_stores:
+  chrome:
+    update_url: https://clients2.google.com/service/update2/crx
+    pin: {toolbar_pin: force_pinned}
+  edge:
+    update_url: https://edge.microsoft.com/extensionwebstorebase/v1/crx
+    pin: {toolbar_state: force_shown}
+# Firefox: ExtensionSettings entries get this when software.pin_extensions is true (unless they set it themselves)
+software_firefox_pin: {default_area: navbar}

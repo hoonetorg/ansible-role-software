@@ -1,6 +1,30 @@
 ---
-software:
+# Merged (recursively) with the inventory variable `software` into `software_final`.
+software_defaults:
+  # language packs, keys of software_langmap (only where vars/<os>.yml has software_languagepkgs_map:
+  # Debian, Ubuntu, RedHat; openSUSE: none yet)
   languages: []
+  # packages to install (state present); vendor repos (e.g. Microsoft Edge) come from ansible-role-repo
+  packages: []
+  # additional packages per OS family (ansible_os_family: Suse, Debian, RedHat), for names that differ between
+  # distributions, e.g. {Suse: [diff-pdf], Debian: [diffpdf], RedHat: [diffpdf]}
+  packages_by_os: {}
+  # browser policies (all profiles, override local and synced settings), only for browsers in the package list
+  # (vars/main.yml: software_browsers); a browser not in the list or without policies: the role's file is removed
+  # - for all Chromium based browsers (Chromium, Chrome, Brave, Edge), e.g. PasswordManagerEnabled: false
+  chromium_common_policies: {}
+  # - extensions (store IDs), installed into every profile (normal_installed: can be disabled, not removed)
+  chrome_store_extensions: []        # Chromium, Chrome, Brave (Chrome Web Store)
+  edge_store_extensions: []          # Edge (Edge Add-ons)
+  # pin the extensions to the toolbar (visible): store extensions above and Firefox ExtensionSettings entries
+  pin_extensions: false
+  # - per browser, merged over the common ones (the browser's value wins)
+  chromium_policies: {}
+  chrome_policies: {}
+  brave_policies: {}
+  edge_policies: {}
+  # - Firefox enterprise policies, written as {"policies": ...}
+  firefox_policies: {}
 
 software_langmap:
     german:
@@ -11,3 +35,14 @@ software_langmap:
       short: fr
       medium: fra
       long: french
+
+# vendor RPMs (Chromium based browsers) add their own repo file at install time unless their defaults file exists:
+# for these packages an empty defaults file is created before the installation (as opi does), so only the repo of
+# ansible-role-repo is used
+software_vendor_defaults_files:
+  microsoft-edge-stable: /etc/default/microsoft-edge
+  microsoft-edge-beta: /etc/default/microsoft-edge-beta
+  microsoft-edge-dev: /etc/default/microsoft-edge-dev
+  google-chrome-stable: /etc/default/google-chrome
+  google-chrome-beta: /etc/default/google-chrome-beta
+  brave-browser: /etc/default/brave-browser

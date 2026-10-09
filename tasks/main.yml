@@ -1,46 +1,71 @@
 ---
-- name: Load family vars
-  ansible.builtin.include_vars:
-    file: "{{ ansible_os_family }}.yml"
+- name: Build final software configuration
+  ansible.builtin.set_fact:
+    software_final: "{{ software_defaults | combine(software | default({}), recursive=True) }}"
 
-- name: Load distro vars if present
+- name: Build package list (common + this OS family)
+  ansible.builtin.set_fact:
+    software_packages: >-
+      {{ (software_final.packages + software_final.packages_by_os[ansible_os_family] | default([])) | unique }}
+
+# language package patterns per distribution / OS family; none for an OS: no language packages
+- name: Load OS vars
   ansible.builtin.include_vars:
-    file: "{{ ansible_distribution }}.yml"
-  ignore_errors: true
+    file: "{{ lookup('ansible.builtin.first_found', software_os_vars) }}"
+  vars:
+    software_os_vars:
+      files:
+        - "{{ ansible_distribution }}.yml"
+        - "{{ ansible_os_family }}.yml"
+        - empty.yml
+      paths: ["{{ role_path }}/vars"]
 
 - name: Validate configured languages
   ansible.builtin.assert:
     that:
       - item in software_langmap
     fail_msg: "Unsupported software language: {{ item }}"
-  loop: "{{ software.languages | default([]) }}"
-
-- name: Initialize language package list
-  ansible.builtin.set_fact:
-    software_languagepkgs_final: []
+  loop: "{{ software_final.languages }}"
 
 - name: Build language package list
   ansible.builtin.set_fact:
     software_languagepkgs_final: >-
-      {{
-        software_languagepkgs_final
-        + (software_languagepkgs_map.short  | default([]) | map('format', langdef.short)  | list)
-        + (software_languagepkgs_map.medium | default([]) | map('format', langdef.medium) | list)
-        + (software_languagepkgs_map.long   | default([]) | map('format', langdef.long)   | list)
-      }}
+      {{ software_languagepkgs_final | default([])
+         + (software_languagepkgs_map.short  | default([]) | map('format', langdef.short)  | list)
+         + (software_languagepkgs_map.medium | default([]) | map('format', langdef.medium) | list)
+         + (software_languagepkgs_map.long   | default([]) | map('format', langdef.long)   | list) }}
   vars:
     langdef: "{{ software_langmap[item] }}"
-  loop: "{{ software.languages | default([]) }}"
+  loop: "{{ software_final.languages }}"
+  when: software_languagepkgs_map is defined
 
 - name: Install language packages
   ansible.builtin.package:
     name: "{{ software_languagepkgs_final | unique }}"
     state: present
-  when: software_languagepkgs_final | length > 0
+  when: software_languagepkgs_final | default([]) | length > 0
 
-- name: Package-install
+# before the installation: an empty defaults file keeps the vendor package from adding its own repo
+- name: Defaults files of vendor packages (no own repo)
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ software_vendor_defaults_files[item] }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  loop: "{{ software_packages | select('in', software_vendor_defaults_files) | list }}"
+
+- name: Install packages
   ansible.builtin.package:
-    name:
-      - mc
-      - chromium
-    state: latest
+    name: "{{ software_packages }}"
+    state: present
+  when: software_packages | length > 0
+
+# browser policies (Firefox, Chromium, Chrome, Brave, Edge): only for browsers in the package list
+- name: Browser policies
+  ansible.builtin.include_tasks: browser.yml
+  loop: "{{ software_browsers | dict2items }}"
+  loop_control:
+    loop_var: software_b
+    label: "{{ software_b.key }}"
