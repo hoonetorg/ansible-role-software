@@ -1,0 +1,69 @@
+---
+# Packages that must come from one repository (e.g. an own OBS build replacing distribution packages).
+# Installed once with --from (also switching vendor); afterwards zypper's vendor protection keeps them:
+# zypper up/dup/in only take updates of the same vendor, i.e. from this repository. No repo priority needed.
+# Already the repository's build → no zypper transaction at all (works when the repository is unreachable).
+# Failure → warning, nothing changed (zypper aborts the transaction), the run continues.
+- name: "From {{ software_repo }}: packages"
+  ansible.builtin.set_fact:
+    software_repo_names: "{{ software_repo_entries | selectattr('from', 'equalto', software_repo) | map(attribute='name') | unique }}"
+
+# cached metadata only (no network); status="installed" = exactly the repository's build is installed
+- name: "From {{ software_repo }}: installed builds"
+  ansible.builtin.command:
+    argv: "{{ ['zypper', '--non-interactive', '--no-refresh', '--xmlout', 'search', '--details', '--match-exact',
+              '--repo', software_repo] + software_repo_names }}"
+  register: software_repo_search
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "From {{ software_repo }}: packages to install"
+  ansible.builtin.set_fact:
+    software_repo_missing: >-
+      {{ software_repo_names | difference(software_repo_search.stdout
+         | regex_findall('<solvable status="installed" name="([^"]+)"')) }}
+
+- name: "From {{ software_repo }}: would install (check mode)"
+  ansible.builtin.debug:
+    msg: "software: would install from {{ software_repo }}: {{ software_repo_names | join(' ') }} (not the repository's build: {{ software_repo_missing | join(' ') }})"
+  when: ansible_check_mode and software_repo_missing | length > 0
+
+# all names of the repository at once (libraries and tools of one build stay consistent); --force: also when the
+# same or a newer version of another vendor is installed; --download in-advance: all packages are downloaded
+# before the first one is installed (no half-switched build); no --force-resolution: on a conflict zypper aborts
+- name: "From {{ software_repo }}: install"
+  when: not ansible_check_mode and software_repo_missing | length > 0
+  block:
+    - name: "From {{ software_repo }}: zypper install --from"
+      ansible.builtin.command:
+        argv: "{{ ['zypper', '--non-interactive', 'install', '--force', '--allow-vendor-change', '--download',
+                  'in-advance', '--from', software_repo] + software_repo_names }}"
+      register: software_repo_install
+      changed_when: true
+
+    - name: "From {{ software_repo }}: installed builds after install"
+      ansible.builtin.command:
+        argv: "{{ ['zypper', '--non-interactive', '--no-refresh', '--xmlout', 'search', '--details',
+                  '--match-exact', '--repo', software_repo] + software_repo_names }}"
+      register: software_repo_search_after
+      changed_when: false
+      failed_when: false
+
+    - name: "From {{ software_repo }}: check after install"
+      ansible.builtin.assert:
+        that: software_repo_names | difference(software_repo_search_after.stdout
+          | regex_findall('<solvable status="installed" name="([^"]+)"')) | length == 0
+        fail_msg: "installed, but zypper doesn't report the repository's build for all packages"
+        quiet: true
+  rescue:
+    - name: "WARNING from {{ software_repo }}: not installed"
+      ansible.builtin.assert:
+        that: false
+        fail_msg: >-
+          WARNING software: {{ software_repo_names | join(' ') }} from {{ software_repo }} not (completely) installed
+          ({{ ansible_failed_result.msg | default('') }}); a failed zypper transaction changes nothing, the next run
+          tries again.
+          zypper: {{ (ansible_failed_result.stdout_lines | default([]))[-6:] | join(' | ') }}
+          {{ (ansible_failed_result.stderr_lines | default([]))[-3:] | join(' | ') }}
+      ignore_errors: true

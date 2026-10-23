@@ -10,7 +10,9 @@ language packs.
 4. vendor packages (Microsoft Edge, Google Chrome, Brave): their empty defaults file (`/etc/default/microsoft-edge`, …)
    is created before the installation if it does not exist - otherwise the package's install script adds its own
    repo file next to the one from ansible-role-repo (the same trick `opi msedge` uses)
-5. `software.packages` plus `software.packages_by_os[<os_family>]` are installed
+5. `software.packages` plus `software.packages_by_os[<os_family>]` are installed; an entry
+   `{name: <package>, from: <repo alias>}` is installed from exactly that repository (openSUSE only, see below),
+   before the plain names
 6. browser policies, only for browsers in the package list (otherwise the role's own policy file is removed):
 
    | browser | package (match) | policy file | check |
@@ -28,6 +30,38 @@ language packs.
    before (passwords, cards) - remove those once per profile by hand.
 
 Repositories (e.g. Microsoft Edge, OBS projects) are configured by ansible-role-repo, which runs before this role.
+
+## Packages from one repository (`from`)
+
+For own builds that replace distribution packages (e.g. freerdp from an OBS home project):
+
+```yaml
+software:
+  packages:
+    - {name: freerdp, from: home_hoo}          # zypper alias from ansible-role-repo
+    - {name: freerdp-sdl, from: home_hoo}
+    - {name: libfreerdp3-3, from: home_hoo}    # list ALL subpackages in use (rpm -qa --qf '%{NAME} %{SOURCERPM}\n')
+    - {name: libwinpr3-3, from: home_hoo}
+    - {name: librdtk0-0, from: home_hoo}
+```
+
+- Check (cached metadata, no network): `zypper --no-refresh search --details --match-exact --repo <alias> <names>`;
+  every name with status "installed" (exactly that repository's build) → nothing to do, no zypper transaction -
+  also when the repository is unreachable.
+- Otherwise all names of that repository in one transaction:
+  `zypper --non-interactive install --force --allow-vendor-change --download in-advance --from <alias> <names>`
+  (also over the same or a newer version of another vendor; everything is downloaded before the first install). On a conflict zypper aborts and changes nothing; the role shows a warning
+  (failed + "...ignoring", counted as `ignored`), the run continues, the next run tries again.
+- Afterwards zypper keeps them: different vendor (`obs://build.opensuse.org/home:<user>`), and zypp's defaults
+  `solver.allowVendorChange=false` / `solver.dupAllowVendorChange=false` → `zypper up/dup/in` only take updates of
+  the same vendor = from that repository; newer distribution versions are ignored. **No repo priority needed** (it
+  would prefer every package of the repository, also ones added later).
+- Security updates come only from your build: keep the OBS package a branch/link of the distribution package so
+  OBS merges its changes and rebuilds.
+- A newer build in the repository is installed by `zypper up` (same vendor) or by the next run of the role.
+- Back to the distribution packages: remove the entries, then
+  `zypper in --force --allow-vendor-change --from <distribution repo alias> <names>`.
+- Check: `rpm -q --qf '%{NAME} %{VERSION}-%{RELEASE} %{VENDOR}\n' <names>`
 
 ## Variables
 

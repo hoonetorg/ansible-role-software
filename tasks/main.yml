@@ -3,10 +3,32 @@
   ansible.builtin.set_fact:
     software_final: "{{ software_defaults | combine(software | default({}), recursive=True) }}"
 
-- name: Build package list (common + this OS family)
+- name: Package entries (common + this OS family)
   ansible.builtin.set_fact:
-    software_packages: >-
-      {{ (software_final.packages + software_final.packages_by_os[ansible_os_family] | default([])) | unique }}
+    software_entries: "{{ software_final.packages + software_final.packages_by_os[ansible_os_family] | default([]) }}"
+
+# an entry is a package name or {name: ..., from: <zypper repo alias>} (installed from exactly that repo)
+- name: Assert package entries
+  ansible.builtin.assert:
+    that:
+      - item is string or (item is mapping and item.name | default('') is string and item.name | default('') | length > 0
+        and item.from | default('') is string and item.from | default('') | length > 0)
+      - item is string or ansible_os_family == 'Suse'
+    fail_msg: >-
+      software: package entry {{ item }} must be a name or {name: <package>, from: <repo alias>}; 'from' is only
+      implemented for openSUSE (zypper)
+    quiet: true
+  loop: "{{ software_entries }}"
+
+# software_packages: all names (browser detection, vendor defaults files); plain names are installed by the
+# package module, the 'from' entries by repo_packages.yml (a name with 'from' wins over the same plain name)
+- name: Build package lists
+  ansible.builtin.set_fact:
+    software_packages: "{{ (software_entries | select('string') | list + software_dicts | map(attribute='name') | list) | unique }}"
+    software_plain_packages: "{{ software_entries | select('string') | unique | difference(software_dicts | map(attribute='name')) }}"
+    software_repo_entries: "{{ software_dicts }}"
+  vars:
+    software_dicts: "{{ software_entries | reject('string') | list }}"
 
 # language package patterns per distribution / OS family; none for an OS: no language packages
 - name: Load OS vars
@@ -56,11 +78,18 @@
     force: false
   loop: "{{ software_packages | select('in', software_vendor_defaults_files) | list }}"
 
+# before the plain packages: they may depend on these
+- name: Packages from a given repository
+  ansible.builtin.include_tasks: repo_packages.yml
+  loop: "{{ software_repo_entries | map(attribute='from') | unique }}"
+  loop_control:
+    loop_var: software_repo
+
 - name: Install packages
   ansible.builtin.package:
-    name: "{{ software_packages }}"
+    name: "{{ software_plain_packages }}"
     state: present
-  when: software_packages | length > 0
+  when: software_plain_packages | length > 0
 
 # browser policies (Firefox, Chromium, Chrome, Brave, Edge): only for browsers in the package list
 - name: Browser policies
