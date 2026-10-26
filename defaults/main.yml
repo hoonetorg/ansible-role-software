@@ -25,6 +25,21 @@ software_defaults:
   edge_policies: {}
   # - Firefox enterprise policies, written as {"policies": ...}
   firefox_policies: {}
+  # web apps: menu entries that open a site as an app window of a Chromium based browser, for all users; ids no
+  # longer listed or with state: absent are removed (cleanup note per web app, saved next to the ansible log).
+  # Entries:
+  #   {id: telegram, name: Telegram, url: "https://web.telegram.org/a/", icon_url: "https://…/icon.png",
+  #    browser: chromium, profile: Default, wm_class: …}
+  # id, name, url required (state: absent needs only id); browser (key of software_browsers, in the package list)
+  # default chromium; without profile: own browser data dir per user and app (~/.local/share/webapps/<id>, profile
+  # <id> inside, not in the browser's profile list),
+  # with profile: that profile of the browser's normal data dir; icon_url (png/svg, downloaded once) else icon (theme
+  # name) default web-browser; wm_class only if the computed window class is wrong
+  webapps: []
+  # where the launchers, the downloaded icons and the launcher wrapper go
+  webapps_dir: /usr/local/share/applications
+  webapps_icon_dir: /usr/local/share/webapps
+  webapps_launcher: /usr/local/bin/webapp-launch
 
 software_langmap:
     german:

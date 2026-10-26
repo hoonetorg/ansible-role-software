@@ -98,3 +98,7 @@
   loop_control:
     loop_var: software_b
     label: "{{ software_b.key }}"
+
+# menu entries for sites as app windows of a Chromium based browser (own profile each)
+- name: Web apps
+  ansible.builtin.include_tasks: webapps.yml

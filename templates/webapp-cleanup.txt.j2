@@ -1,0 +1,34 @@
+{% set b = software_browsers[software_wa.browser] | default({}) %}
+{% macro profile_steps(title, scheme, p, hint, dir) %}
+  To delete it (in the browser, not in the file system):
+    1. find it: open each profile, {{ scheme }}://version -> Profile Path ends in /{{ p }}
+    2. delete it: {{ hint }} - this also deletes {{ dir }}/{{ p }}
+{% endmacro %}
+Web app "{{ software_wa.name or software_wa.id }}" ({{ software_wa.id }}) removed by ansible-role-software
+host:     {{ inventory_hostname }}
+date:     {{ now(fmt='%Y-%m-%d %H:%M:%S') }}
+{% if software_wa.known | bool %}
+url:      {{ software_wa.url }}
+browser:  {{ b.title | default(software_wa.browser) }}, {{ 'profile ' ~ software_wa.profile if software_wa.profile else 'own data dir' }}
+{% endif %}
+removed:  {{ ([software_wa.launcher] + software_wa_icons) | join(', ') }}
+
+The role never touches the homes. Left there, per user that used the web app (close it first):
+{% if not software_wa.known | bool %}
+  (launcher of an older role version, the start mode is unknown - check both)
+  own data dir:     rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/webapps/{{ software_wa.id }}"   (only this web app's cookies, logins, cache)
+  Chromium profile "WebApp-{{ software_wa.id }}" (if it exists).
+{{ profile_steps('Chromium', 'chrome', 'WebApp-' ~ software_wa.id, software_browsers.chromium.profiles_hint, software_browsers.chromium.config_dir) }}
+{%- elif software_wa.profile %}
+  {{ b.title | default(software_wa.browser) }} profile "{{ software_wa.profile }}" - a normal browser profile, may hold more than this web app (tabs, other sites, the
+  browser's own login). Keep it if you still use it.
+{{ profile_steps(b.title | default(''), b.scheme | default('chrome'), software_wa.profile, b.profiles_hint | default('browser profile settings'), b.config_dir | default('?')) }}
+{%- else %}
+  rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/webapps/{{ software_wa.id }}"
+  (only this web app's cookies, logins and cache)
+  KeePassXC: Database -> Database Settings -> Browser Integration -> remove the key of this web app
+{% endif %}
+  GNOME: a pinned dash entry of the web app disappears by itself
+{% if software_wa_note_dir %}
+Note: {{ software_wa_note_dir }}/web-app-{{ software_wa.id }}-{{ software_wa_stamp }}.txt{{ ' (check mode: not written)' if ansible_check_mode else '' }}
+{% endif %}

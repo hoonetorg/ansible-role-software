@@ -1,0 +1,20 @@
+[Desktop Entry]
+# {{ ansible_managed }}
+Type=Application
+Name={{ item.name }}
+Comment=Web app {{ item.url }} ({{ item.browser }}{{ ', profile ' ~ item.profile if item.profile else ', own data dir' }})
+{% if item.profile %}
+Exec={{ software_wa_browser.command }} "--profile-directory={{ item.profile | replace('%', '%%') }}" "--app={{ item.url | replace('%', '%%') }}"
+{% else %}
+Exec={{ software_final.webapps_launcher }} {{ software_wa_browser.command }} {{ item.id }} "{{ item.url | replace('%', '%%') }}"
+{% endif %}
+Icon={{ item.icon_file if software_wa_icon_ok | bool else item.icon | default('web-browser') }}
+Terminal=false
+Categories=Network;
+{# app windows get the class <app_id>-<host>_<path, / as _>-<profile> (Chromium's name for --app windows; own data dir: profile = id) #}
+StartupWMClass={{ item.wm_class | default(software_wa_browser.app_id ~ '-' ~ item.url | urlsplit('hostname') ~ '_' ~ software_wa_path | replace('/', '_') ~ '-' ~ (item.profile or item.id)) }}
+{# read back when the web app is removed (cleanup note) #}
+X-Webapp-Id={{ item.id }}
+X-Webapp-Browser={{ item.browser }}
+X-Webapp-Profile={{ item.profile }}
+X-Webapp-Url={{ item.url }}

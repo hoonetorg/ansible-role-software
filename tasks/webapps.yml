@@ -1,0 +1,287 @@
+---
+# web apps: one launcher (+ icon) per entry; the browser creates its data dir / profile on the first start (no home
+# directory touched here)
+- name: Assert web app entries (mapping with id, state)
+  ansible.builtin.assert:
+    that:
+      - item is mapping and item.id | default('') is string and item.id | default('') is match('^[a-z0-9][a-z0-9_-]*$')
+      - item.state | default('present') in ['present', 'absent']
+    fail_msg: "software: web app {{ item }} needs an id (a-z 0-9 _ -), state present or absent"
+    quiet: true
+  loop: "{{ software_final.webapps }}"
+
+- name: Web app list
+  ansible.builtin.set_fact:
+    software_webapps: []
+
+- name: Web app entries with defaults
+  ansible.builtin.set_fact:
+    software_webapps: >-
+      {{ software_webapps + [item | combine({
+           'browser': item.browser | default('chromium'),
+           'profile': item.profile | default(''),
+           'icon_file': (software_final.webapps_icon_dir ~ '/' ~ item.id
+                         ~ (item.icon_url | urlsplit('path') | splitext | last | lower))
+                        if item.icon_url is defined else ''})] }}
+  loop: "{{ software_final.webapps | rejectattr('state', 'defined') | list
+            + software_final.webapps | selectattr('state', 'defined') | selectattr('state', 'eq', 'present') | list }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+# Exec quotes url and profile; characters that would need escaping inside the quotes are not allowed
+- name: Assert web app entries
+  ansible.builtin.assert:
+    that:
+      - item.name | default('') is string and item.name | default('') | length > 0
+      - item.url | default('') is match('^https?://[^"`$\\\\ ]+$')
+      - item.profile == '' or item.profile is match('^[^"`$\\\\/]+$')
+      - software_wa_browser.command is defined
+      - software_packages | select('match', software_wa_browser.match) | list | length > 0
+      - item.icon_file == '' or item.icon_file is match('.*[.](png|svg)$')
+      - software_webapps | selectattr('id', 'eq', item.id) | list | length == 1
+    fail_msg: >-
+      software: web app {{ item.id }}: needs a unique id, a name, a url (http/https, without space " ` $ \),
+      a Chromium based browser of the package list ({{ software_browsers | dict2items
+      | selectattr('value.command', 'defined') | map(attribute='key') | join(', ') }}), an icon_url ending in
+      .png/.svg (GNOME shows .ico as noise)
+    quiet: true
+  loop: "{{ software_webapps }}"
+  loop_control:
+    label: "{{ item.id }}"
+  vars:
+    software_wa_browser: "{{ software_browsers[item.browser] | default({'match': '^$'}) }}"
+
+# browsers that need the system-wide KeePassXC-Browser manifest (web apps with their own data dir)
+- name: Browsers of web apps with their own data dir
+  ansible.builtin.set_fact:
+    software_wa_nmh_browsers: >-
+      {{ software_webapps | selectattr('profile', 'eq', '') | map(attribute='browser') | unique
+         | select('in', software_browsers | dict2items | selectattr('value.nmh_dir', 'defined') | map(attribute='key'))
+         | list
+         if software_packages | select('match', '^keepassxc$') | list | length > 0 else [] }}
+
+# exists = the role created web apps before (removal below); check mode: no icon download into a missing directory
+- name: Web app icon directory
+  ansible.builtin.stat:
+    path: "{{ software_final.webapps_icon_dir }}"
+  register: software_webapp_icon_dir
+
+- name: Web app directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ software_final.webapps_dir }}"
+    - "{{ software_final.webapps_icon_dir }}"
+  when: software_webapps | length > 0
+
+# downloaded once: only missing (or empty) icons are fetched, existing ones kept (get_url alone would report every
+# icon as changed in check mode) and checked for owner/mode on every run; a failed download is a warning, the
+# launcher then gets the fallback icon. To refresh an icon delete its file
+- name: Web app icons present
+  ansible.builtin.stat:
+    path: "{{ item.icon_file }}"
+  loop: "{{ software_webapps | selectattr('icon_file', 'ne', '') | list }}"
+  loop_control:
+    label: "{{ item.id }}"
+  register: software_webapp_icon_stat
+
+# usable icon: regular, non-empty file
+- name: Web app icons already installed
+  ansible.builtin.set_fact:
+    software_wa_icons_ok: >-
+      {{ software_webapp_icon_stat.results | selectattr('stat.exists') | selectattr('stat.isreg')
+         | selectattr('stat.size', 'gt', 0) | map(attribute='item.id') | list }}
+
+- name: Web app icons
+  ansible.builtin.get_url:
+    url: "{{ item.item.icon_url }}"
+    dest: "{{ item.item.icon_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: "{{ item.stat.exists }}"   # replace an empty leftover
+  loop: "{{ software_webapp_icon_stat.results | rejectattr('item.id', 'in', software_wa_icons_ok) | list }}"
+  loop_control:
+    label: "{{ item.item.id }}"
+  register: software_webapp_icons
+  ignore_errors: true
+  when: not ansible_check_mode or software_webapp_icon_dir.stat.isdir | default(false)
+
+- name: Web app icon permissions
+  ansible.builtin.file:
+    path: "{{ item.icon_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ software_webapps | selectattr('id', 'in', software_wa_icons_ok) | list }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+# own data dir per user and app: the .desktop Exec line can't expand $HOME, the wrapper does
+- name: Web app launcher wrapper
+  ansible.builtin.copy:
+    src: webapp-launch
+    dest: "{{ software_final.webapps_launcher }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: software_webapps | length > 0
+
+- name: Web app launchers
+  ansible.builtin.template:
+    src: webapp.desktop.j2
+    dest: "{{ software_final.webapps_dir }}/webapp-{{ item.id }}.desktop"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ software_webapps }}"
+  loop_control:
+    label: "{{ item.id }}"
+  vars:
+    software_wa_browser: "{{ software_browsers[item.browser] }}"
+    software_wa_path: "{{ item.url | urlsplit('path') | default('/', true) }}"
+    software_wa_icon_ok: >-
+      {{ item.icon_file != ''
+         and (item.id in software_wa_icons_ok
+              or (software_webapp_icons.results | default([]) | selectattr('item.item.id', 'eq', item.id)
+                  | map(attribute='failed', default=false) | reject | list | length > 0)) }}
+
+# KeePassXC writes its native messaging manifest only into the browser's default data dir (~/.config/<browser>);
+# web apps with their own data dir find it only system-wide. Written for the browsers of those web apps when keepassxc
+# is in the package list, removed otherwise
+- name: KeePassXC-Browser manifest directories
+  ansible.builtin.file:
+    path: "{{ software_browsers[item].nmh_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ software_wa_nmh_browsers }}"
+
+- name: KeePassXC-Browser manifests (system-wide)
+  ansible.builtin.copy:
+    content: "{{ software_keepassxc_manifest | to_nice_json }}\n"
+    dest: "{{ software_browsers[item].nmh_dir }}/org.keepassxc.keepassxc_browser.json"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ software_wa_nmh_browsers }}"
+
+- name: KeePassXC-Browser manifests not needed
+  ansible.builtin.file:
+    path: "{{ software_browsers[item].nmh_dir }}/org.keepassxc.keepassxc_browser.json"
+    state: absent
+  loop: >-
+    {{ software_browsers | dict2items | selectattr('value.nmh_dir', 'defined') | map(attribute='key')
+       | reject('in', software_wa_nmh_browsers) | list }}
+
+# desired state: launchers and icons of ids no longer listed (or state absent) are removed (only if the role ever
+# created web apps). The user data in the homes stays: for every removed web app a cleanup note per user is shown
+# (as "changed", so it is visible at the default verbosity) and saved next to the ansible log on the controller
+- name: Remove web apps no longer listed
+  when: software_webapp_icon_dir.stat.isdir | default(false)
+  block:
+    - name: Web app files present
+      ansible.builtin.find:
+        paths:
+          - "{{ software_final.webapps_dir }}"
+          - "{{ software_final.webapps_icon_dir }}"
+        patterns: ["webapp-*.desktop", "*.png", "*.svg", "*.ico"]
+      register: software_webapp_files
+
+    - name: Web app files to remove
+      ansible.builtin.set_fact:
+        software_wa_remove: >-
+          {{ software_webapp_files.files | map(attribute='path')
+             | select('match', '^(' ~ (software_final.webapps_dir ~ '/webapp-') | regex_escape ~ '|'
+                      ~ (software_final.webapps_icon_dir ~ '/') | regex_escape ~ ')')
+             | reject('in', software_webapps | map(attribute='id')
+                            | map('regex_replace', '^', software_final.webapps_dir ~ '/webapp-')
+                            | map('regex_replace', '$', '.desktop') | list)
+             | reject('in', software_webapps | map(attribute='icon_file') | list)
+             | sort | list }}
+
+    # the launcher is the only place that still knows how the web app was started (browser, own data dir or profile)
+    - name: Read launchers of removed web apps
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ software_wa_remove | select('match', '.*[.]desktop$') | list }}"
+      register: software_wa_removed_launchers
+
+    - name: Cleanup note list
+      ansible.builtin.set_fact:
+        software_wa_notes: []
+
+    - name: Cleanup notes of removed web apps
+      ansible.builtin.set_fact:
+        software_wa_notes: >-
+          {{ software_wa_notes | default([]) + [{'id': software_wa.id,
+               'file': software_wa_note_dir ~ '/web-app-' ~ software_wa.id ~ '-' ~ software_wa_stamp ~ '.txt'
+                       if software_wa_note_dir else '',
+               'text': lookup('ansible.builtin.template', 'webapp-cleanup.txt.j2')}] }}
+      loop: "{{ software_wa_removed_launchers.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      vars:
+        software_wa_desktop: "{{ item.content | b64decode }}"
+        software_wa_key: >-
+          {{ dict(software_wa_desktop | regex_findall('^(X-Webapp-[A-Za-z]+|Name)=(.*)$', multiline=True)) }}
+        software_wa:
+          id: "{{ item.item | basename | regex_replace('^webapp-', '') | regex_replace('[.]desktop$', '') }}"
+          launcher: "{{ item.item }}"
+          known: "{{ 'X-Webapp-Id' in software_wa_key }}"
+          name: "{{ software_wa_key.Name | default('') }}"
+          url: "{{ software_wa_key['X-Webapp-Url'] | default('') }}"
+          browser: "{{ software_wa_key['X-Webapp-Browser'] | default('') }}"
+          profile: "{{ software_wa_key['X-Webapp-Profile'] | default('') }}"
+        software_wa_icons: >-
+          {{ software_wa_remove | select('match', (software_final.webapps_icon_dir ~ '/' ~ software_wa.id) | regex_escape
+             ~ '[.][a-z]+$') | list }}
+        software_wa_stamp: "{{ now(fmt='%Y%m%d-%H%M%S') }}"
+        software_wa_log: "{{ lookup('ansible.builtin.config', 'DEFAULT_LOG_PATH') | default('', true) }}"
+        software_wa_note_dir: >-
+          {{ (software_wa_log | dirname ~ '/cleanup/' ~ inventory_hostname) if software_wa_log | length > 0 else '' }}
+
+    - name: Web app removed - cleanup per user
+      ansible.builtin.debug:
+        msg: "{{ item.text | trim | split('\n') }}"
+      changed_when: true
+      loop: "{{ software_wa_notes | default([]) }}"
+      loop_control:
+        label: "{{ item.id }}"
+
+    - name: Cleanup note directory (controller, next to the ansible log)
+      ansible.builtin.file:
+        path: "{{ software_wa_notes | map(attribute='file') | first | dirname }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+      when: software_wa_notes | default([]) | selectattr('file', 'ne', '') | list | length > 0
+
+    - name: Cleanup notes (controller)
+      ansible.builtin.copy:
+        content: "{{ item.text }}"
+        dest: "{{ item.file }}"
+        mode: "0644"
+      delegate_to: localhost
+      become: false
+      loop: "{{ software_wa_notes | default([]) | selectattr('file', 'ne', '') | list }}"
+      loop_control:
+        label: "{{ item.file }}"
+
+    - name: Remove the launcher wrapper (no web apps)
+      ansible.builtin.file:
+        path: "{{ software_final.webapps_launcher }}"
+        state: absent
+      when: software_webapps | length == 0
+
+    - name: Remove launchers/icons of web apps no longer listed
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ software_wa_remove }}"

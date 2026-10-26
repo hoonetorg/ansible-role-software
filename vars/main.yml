@@ -2,7 +2,11 @@
 # browsers with policies: a browser counts as installed when a package of software.packages(+_by_os) matches
 # `match`; its policies go to `file` (written by this role only, other files in the directory are not touched).
 # Chromium based browsers (`store`) get chromium_common_policies + the extensions of their store; Firefox gets
-# {"policies": firefox_policies}
+# {"policies": firefox_policies}. Chromium based: `command` starts it (software.webapps), `app_id` is the prefix of
+# the window class of its --app windows (<app_id>-<host>_<path with / as _>-<profile>), to be verified on the VM;
+# `nmh_dir`: system-wide native messaging hosts (KeePassXC-Browser for web apps with their own data dir)
+# `title`, `scheme` (<scheme>://version), `config_dir` (normal data dir), `profiles_hint` (how to delete a profile):
+# cleanup notes
 software_browsers:
   firefox:
     match: '^(MozillaFirefox|firefox|firefox-esr)$'
@@ -12,18 +16,45 @@ software_browsers:
     match: '^(chromium|chromium-browser)$'
     file: /etc/chromium/policies/managed/ansible.json
     store: chrome
+    command: chromium
+    title: Chromium
+    scheme: chrome
+    config_dir: ~/.config/chromium
+    profiles_hint: profile picker -> ... on that profile -> Delete
+    nmh_dir: /etc/chromium/native-messaging-hosts
+    app_id: chrome
   chrome:
     match: '^google-chrome-'
     file: /etc/opt/chrome/policies/managed/ansible.json
     store: chrome
+    command: google-chrome-stable
+    title: Chrome
+    scheme: chrome
+    config_dir: ~/.config/google-chrome
+    profiles_hint: profile picker -> ... on that profile -> Delete
+    nmh_dir: /etc/opt/chrome/native-messaging-hosts
+    app_id: chrome
   brave:
     match: '^brave-browser'
     file: /etc/brave/policies/managed/ansible.json
     store: chrome
+    command: brave-browser
+    title: Brave
+    scheme: brave
+    config_dir: ~/.config/BraveSoftware/Brave-Browser
+    profiles_hint: profile picker -> ... on that profile -> Delete
+    app_id: brave
   edge:
     match: '^microsoft-edge-'
     file: /etc/opt/edge/policies/managed/ansible.json
     store: edge
+    command: microsoft-edge-stable
+    title: Edge
+    scheme: edge
+    config_dir: ~/.config/microsoft-edge
+    profiles_hint: edge://settings/profiles -> ... -> Remove
+    nmh_dir: /etc/opt/edge/native-messaging-hosts
+    app_id: msedge
 
 # extension stores: update URL (ExtensionSettings: normal_installed) and the setting that pins an extension to the
 # toolbar (software.pin_extensions; Chromium: toolbar_pin, Edge >= 103: toolbar_state)
@@ -36,3 +67,14 @@ software_extension_stores:
     pin: {toolbar_state: force_shown}
 # Firefox: ExtensionSettings entries get this when software.pin_extensions is true (unless they set it themselves)
 software_firefox_pin: {default_area: navbar}
+
+# KeePassXC-Browser native messaging manifest (as KeePassXC writes it for Chromium based browsers): extension IDs of
+# the Chrome Web Store and Edge Add-ons
+software_keepassxc_manifest:
+  allowed_origins:
+    - chrome-extension://oboonakemofpalcgghocfoadofidjkkk/
+    - chrome-extension://pdffhmdngciaglkoonimfcmckehcpafo/
+  description: KeePassXC integration with native messaging support
+  name: org.keepassxc.keepassxc_browser
+  path: /usr/bin/keepassxc-proxy
+  type: stdio
