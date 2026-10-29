@@ -97,6 +97,11 @@ software:
   `/etc/chromium/native-messaging-hosts`, Chrome `/etc/opt/chrome/…`, Edge `/etc/opt/edge/…`; Brave: none) and
   removes it otherwise. "Connect" in the add-on once per web app.
 - Firefox has no app windows on Linux, so it is not offered.
+- GNOME and changes: a new web app (launcher + icon) shows up right away; a changed one (start command, profile,
+  window class, icon) only after the next logout/login - GNOME keeps the launchers and icons it already knows. Until
+  then `gtk-launch webapp-<id>` starts the current file. Seen on Leap 16.1 / GNOME 48 (2026-10): a fresh start from
+  the menu after such a change still used the old launcher. Order after a change: run the role, log out/in, do the
+  cleanup from the note (if any), start the web app.
 
 ## Packages from one repository (`from`)
 
