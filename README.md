@@ -144,7 +144,7 @@ software:
     - mc
     - keepassxc
     - microsoft-edge-stable          # needs the repo below
-  packages_by_os:                    # names that differ per OS family (ansible_os_family)
+  packages_by_os:                    # names that differ per OS family (ansible_facts.os_family)
     Suse: [diff-pdf]
     Debian: [diffpdf]
     RedHat: [diffpdf]

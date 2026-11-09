@@ -5,7 +5,7 @@
 
 - name: Package entries (common + this OS family)
   ansible.builtin.set_fact:
-    software_entries: "{{ software_final.packages + software_final.packages_by_os[ansible_os_family] | default([]) }}"
+    software_entries: "{{ software_final.packages + software_final.packages_by_os[ansible_facts.os_family] | default([]) }}"
 
 # an entry is a package name or {name: ..., from: <zypper repo alias>} (installed from exactly that repo)
 - name: Assert package entries
@@ -13,7 +13,7 @@
     that:
       - item is string or (item is mapping and item.name | default('') is string and item.name | default('') | length > 0
         and item.from | default('') is string and item.from | default('') | length > 0)
-      - item is string or ansible_os_family == 'Suse'
+      - item is string or ansible_facts.os_family == 'Suse'
     fail_msg: >-
       software: package entry {{ item }} must be a name or {name: <package>, from: <repo alias>}; 'from' is only
       implemented for openSUSE (zypper)
@@ -37,8 +37,8 @@
   vars:
     software_os_vars:
       files:
-        - "{{ ansible_distribution }}.yml"
-        - "{{ ansible_os_family }}.yml"
+        - "{{ ansible_facts.distribution }}.yml"
+        - "{{ ansible_facts.os_family }}.yml"
         - empty.yml
       paths: ["{{ role_path }}/vars"]
 

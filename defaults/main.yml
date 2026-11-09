@@ -6,7 +6,7 @@ software_defaults:
   languages: []
   # packages to install (state present); vendor repos (e.g. Microsoft Edge) come from ansible-role-repo
   packages: []
-  # additional packages per OS family (ansible_os_family: Suse, Debian, RedHat), for names that differ between
+  # additional packages per OS family (ansible_facts.os_family: Suse, Debian, RedHat), for names that differ between
   # distributions, e.g. {Suse: [diff-pdf], Debian: [diffpdf], RedHat: [diffpdf]}
   packages_by_os: {}
   # browser policies (all profiles, override local and synced settings), only for browsers in the package list
